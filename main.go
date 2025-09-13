@@ -15,7 +15,7 @@ func main() {
 	}
 
 	// 创建TRPC服务
-	s := server.NewServer()
+	s := server.New()
 
 	// 注册服务
 	trpcservices.RegisterAuthService(s, &trpcservices.AuthService{})

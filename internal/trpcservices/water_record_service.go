@@ -8,27 +8,57 @@ import (
 	"trpc.group/trpc-go/trpc-go/server"
 )
 
-type WaterRecordService struct{}
-
-func RegisterWaterRecordService(s server.Service, svr *WaterRecordService) {
-	proto.RegisterWaterRecordServiceService(s, svr)
+type WaterRecordService struct {
+	proto.UnimplementedWaterRecordServiceServer
 }
 
-func (s *WaterRecordService) CreateRecord(ctx context.Context, req *proto.CreateRecordRequest) (*proto.CreateRecordResponse, error) {
+func RegisterWaterRecordService(s server.Service, svr *WaterRecordService) {
+	s.Register(&server.ServiceDesc{
+		ServiceName: "water_reminder.water_record.WaterRecordService",
+		HandlerType: (*WaterRecordService)(nil),
+		Methods: []server.Method{
+			{
+				Name: "CreateRecord",
+				Func: svr.CreateRecord,
+			},
+			{
+				Name: "GetRecords",
+				Func: svr.GetRecords,
+			},
+			{
+				Name: "GetTodayIntake",
+				Func: svr.GetTodayIntake,
+			},
+		},
+	}, svr)
+}
+
+func (s *WaterRecordService) CreateRecord(svr interface{}, ctx context.Context, f server.FilterFunc) (interface{}, error) {
+	req := &proto.CreateRecordRequest{}
+	_, err := f(req)
+	if err != nil {
+		return nil, err
+	}
 	record, err := services.CreateWaterRecord(uint(req.UserId), req.Amount, req.DrinkType)
 	if err != nil {
 		return nil, err
 	}
 
-	return &proto.CreateRecordResponse{
+	resp := &proto.CreateRecordResponse{
 		RecordId:  uint32(record.ID),
 		Amount:    record.Amount,
 		DrinkType: record.DrinkType,
 		Timestamp: record.Time,
-	}, nil
+	}
+	return resp, nil
 }
 
-func (s *WaterRecordService) GetRecords(ctx context.Context, req *proto.GetRecordsRequest) (*proto.GetRecordsResponse, error) {
+func (s *WaterRecordService) GetRecords(svr interface{}, ctx context.Context, f server.FilterFunc) (interface{}, error) {
+	req := &proto.GetRecordsRequest{}
+	_, err := f(req)
+	if err != nil {
+		return nil, err
+	}
 	records, err := services.GetUserRecords(uint(req.UserId))
 	if err != nil {
 		return nil, err
@@ -44,14 +74,23 @@ func (s *WaterRecordService) GetRecords(ctx context.Context, req *proto.GetRecor
 		})
 	}
 
-	return &proto.GetRecordsResponse{Records: respRecords}, nil
+	resp := &proto.GetRecordsResponse{Records: respRecords}
+	return resp, nil
 }
 
-func (s *WaterRecordService) GetTodayIntake(ctx context.Context, req *proto.GetTodayIntakeRequest) (*proto.GetTodayIntakeResponse, error) {
+func (s *WaterRecordService) mustEmbedUnimplementedWaterRecordServiceServer() {}
+
+func (s *WaterRecordService) GetTodayIntake(svr interface{}, ctx context.Context, f server.FilterFunc) (interface{}, error) {
+	req := &proto.GetTodayIntakeRequest{}
+	_, err := f(req)
+	if err != nil {
+		return nil, err
+	}
 	total, err := services.GetTodayIntake(uint(req.UserId))
 	if err != nil {
 		return nil, err
 	}
 
-	return &proto.GetTodayIntakeResponse{TotalAmount: total}, nil
+	resp := &proto.GetTodayIntakeResponse{TotalAmount: total}
+	return resp, nil
 }

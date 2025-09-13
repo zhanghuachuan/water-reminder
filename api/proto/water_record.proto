@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package water_reminder.water_record;
 
-option go_package = "github.com/zhanghuachuan/water-reminder/api/proto";
+option go_package = "github.com/zhanghuachuan/water-reminder/api/proto;proto";
 
 message CreateRecordRequest {
     uint32 user_id = 1;
