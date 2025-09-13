@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package water_reminder.auth;
+
+option go_package = "github.com/zhanghuachuan/water-reminder/api/proto";
+
+message RegisterRequest {
+    string username = 1;
+    string email = 2;
+    string password = 3;
+}
+
+message RegisterResponse {
+    uint32 user_id = 1;
+    string username = 2;
+    string email = 3;
+}
+
+message LoginRequest {
+    string email = 1;
+    string password = 2;
+}
+
+message LoginResponse {
+    uint32 user_id = 1;
+    string username = 2;
+    string email = 3;
+}
+
+service AuthService {
+    rpc Register(RegisterRequest) returns (RegisterResponse);
+    rpc Login(LoginRequest) returns (LoginResponse);
+}
