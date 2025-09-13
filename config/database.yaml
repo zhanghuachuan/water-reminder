@@ -1,7 +1,21 @@
+# MySQL 数据库配置
 mysql:
-  dsn: "user:password@tcp(localhost:3306)/water_reminder?charset=utf8mb4&parseTime=True&loc=Local"
+  dsn: "${DB_USER}:${DB_PASSWORD}@tcp(${DB_HOST}:${DB_PORT})/${DB_NAME}?charset=utf8mb4&parseTime=True&loc=Local"
+  # 连接池配置
+  max_open_conns: 100  # 最大打开连接数
+  max_idle_conns: 20   # 最大空闲连接数
+  conn_max_lifetime: "1h"  # 连接最大存活时间
+  conn_max_idle_time: "30m"  # 连接最大空闲时间
 
+# Redis 配置
 redis:
-  addr: "localhost:6379"
-  password: ""
-  db: 0
+  addr: "${REDIS_HOST}:${REDIS_PORT}"
+  password: "${REDIS_PASSWORD}"
+  db: ${REDIS_DB}
+  # 连接池配置
+  pool_size: 100       # 连接池大小
+  min_idle_conns: 10   # 最小空闲连接数
+  max_retries: 3       # 最大重试次数
+  read_timeout: "3s"   # 读超时
+  write_timeout: "3s"  # 写超时
+  dial_timeout: "5s"   # 连接超时

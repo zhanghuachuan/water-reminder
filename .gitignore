@@ -1,2 +1,5 @@
 water-remainder
 ~/.ssh  
+.env
+docker-compose.yml
+.codebuddy/
