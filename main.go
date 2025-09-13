@@ -1,28 +1,28 @@
 package main
 
 import (
-	"trpc.group/trpc-go/trpc-go/log"
+	"log"
+	"net/http"
 
-	"github.com/zhanghuachuan/water-reminder/internal/database"
-	"github.com/zhanghuachuan/water-reminder/internal/trpcservices"
-	"trpc.group/trpc-go/trpc-go/server"
+	"github.com/zhanghuachuan/water-reminder/framework/scheduler"
+	"github.com/zhanghuachuan/water-reminder/framework/types"
+	_ "github.com/zhanghuachuan/water-reminder/operators"
 )
 
 func main() {
-	// 初始化数据库连接
-	if err := database.InitDB(); err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
+	// 创建调度器
+	sched := scheduler.NewScheduler()
+
+	// 注册算子
+	factory := types.GetFactory()
+	if op, err := factory.Create("jwt_auth"); err == nil {
+		sched.AddOperator(op)
 	}
-
-	// 创建TRPC服务
-	s := server.New()
-
-	// 注册服务
-	trpcservices.RegisterAuthService(s, &trpcservices.AuthService{})
-	trpcservices.RegisterWaterRecordService(s, &trpcservices.WaterRecordService{})
+	if op, err := factory.Create("request_validator"); err == nil {
+		sched.AddOperator(op)
+	}
 
 	// 启动服务
-	if err := s.Serve(); err != nil {
-		log.Fatalf("Failed to serve: %v", err)
-	}
+	log.Println("Server started on :8080")
+	http.ListenAndServe(":8080", sched)
 }

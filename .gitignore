@@ -3,3 +3,4 @@ water-remainder
 .env
 docker-compose.yml
 .codebuddy/
+bin/

@@ -1,0 +1,8 @@
+{
+  "name": "user_service",
+  "operators": {
+    "auth": "validate",
+    "validate": "process",
+    "process": "log"
+  }
+}
