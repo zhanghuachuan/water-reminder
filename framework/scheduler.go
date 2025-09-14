@@ -15,6 +15,7 @@ type ExecutionResult struct {
 	Success      bool
 	Error        error
 	Duration     int64
+	Data         interface{} // 存储算子执行结果的数据
 }
 
 type ExecuteOptions struct {
@@ -172,16 +173,17 @@ func (s *Scheduler) executeSequential(ctx context.Context, executionOrder [][]st
 				continue
 			}
 
-			newCtx, err := op.Execute(ctx, opts.Response, opts.Request)
+			newCtx, result := op.Execute(ctx, opts.Request)
 			results = append(results, ExecutionResult{
 				OperatorName: opName,
-				Success:      err == nil,
-				Error:        err,
+				Success:      result.Error == nil,
+				Error:        result.Error,
+				Data:         result.Data,
 			})
 
-			if err != nil {
-				log.Printf("Operator %s failed: %v", opName, err)
-				return results, fmt.Errorf("operator %s failed: %w", opName, err)
+			if result.Error != nil {
+				log.Printf("Operator %s failed: %v", opName, result.Error)
+				return results, fmt.Errorf("operator %s failed: %w", opName, result.Error)
 			}
 			ctx = newCtx
 		}
@@ -195,59 +197,68 @@ func (s *Scheduler) executeSmartParallel(ctx context.Context, executionOrder [][
 
 	for _, level := range executionOrder {
 		levelResults := make([]ExecutionResult, len(level))
-		levelCtx := ctx // 每个层级共享同一个上下文
+		levelCtx := ctx // 每个层级共享同一个初始上下文
 
 		// 并行执行当前层级的所有算子
-		errCh := make(chan error, len(level))
-		done := make(chan bool, len(level))
-		ctxCh := make(chan context.Context, len(level))
+		type opResult struct {
+			idx      int
+			result   ExecutionResult
+			newCtx   context.Context
+			hasError bool
+		}
+
+		resultCh := make(chan opResult, len(level))
 
 		for i, opName := range level {
 			go func(idx int, name string) {
 				op, exists := s.operators[name]
 				if !exists {
-					levelResults[idx] = ExecutionResult{
-						OperatorName: name,
-						Success:      false,
-						Error:        fmt.Errorf("operator not found"),
+					resultCh <- opResult{
+						idx: idx,
+						result: ExecutionResult{
+							OperatorName: name,
+							Success:      false,
+							Error:        fmt.Errorf("operator not found"),
+						},
+						hasError: true,
 					}
-					errCh <- fmt.Errorf("operator %s not found", name)
-					done <- true
 					return
 				}
 
-				newCtx, err := op.Execute(levelCtx, opts.Response, opts.Request)
-				levelResults[idx] = ExecutionResult{
+				newCtx, operatorResult := op.Execute(levelCtx, opts.Request)
+				execResult := ExecutionResult{
 					OperatorName: name,
-					Success:      err == nil,
-					Error:        err,
+					Success:      operatorResult.Error == nil,
+					Error:        operatorResult.Error,
+					Data:         operatorResult.Data,
 				}
 
-				if err != nil {
-					log.Printf("Operator %s failed: %v", name, err)
-					errCh <- fmt.Errorf("operator %s failed: %w", name, err)
-				} else {
-					ctxCh <- newCtx // 传递更新后的上下文
+				resultCh <- opResult{
+					idx:      idx,
+					result:   execResult,
+					newCtx:   newCtx,
+					hasError: operatorResult.Error != nil,
 				}
-				done <- true
 			}(i, opName)
 		}
 
-		// 等待当前层级所有算子完成
-		for i := 0; i < len(level); i++ {
-			<-done
-		}
+		// 收集当前层级的所有结果
+		var levelErrors []error
+		successfulCtxs := []context.Context{}
 
-		close(errCh)
-		close(done)
-		close(ctxCh)
+		for i := 0; i < len(level); i++ {
+			res := <-resultCh
+			levelResults[res.idx] = res.result
+
+			if res.hasError {
+				levelErrors = append(levelErrors, res.result.Error)
+				log.Printf("Operator %s failed: %v", res.result.OperatorName, res.result.Error)
+			} else if res.newCtx != nil {
+				successfulCtxs = append(successfulCtxs, res.newCtx)
+			}
+		}
 
 		// 检查当前层级是否有错误
-		var levelErrors []error
-		for err := range errCh {
-			levelErrors = append(levelErrors, err)
-		}
-
 		if len(levelErrors) > 0 {
 			return append(results, levelResults...), fmt.Errorf("parallel execution failed at level: %v", levelErrors)
 		}
@@ -255,11 +266,47 @@ func (s *Scheduler) executeSmartParallel(ctx context.Context, executionOrder [][
 		// 收集当前层级的结果
 		results = append(results, levelResults...)
 
-		// 更新上下文：使用最后一个成功的算子的上下文
-		for newCtx := range ctxCh {
-			ctx = newCtx
+		// 更新上下文：合并所有成功算子的上下文
+		if len(successfulCtxs) > 0 {
+			ctx = s.mergeContexts(successfulCtxs)
 		}
 	}
 
 	return results, nil
+}
+
+// mergeContexts 合并多个上下文，优先保留后出现的值
+func (s *Scheduler) mergeContexts(ctxs []context.Context) context.Context {
+	if len(ctxs) == 0 {
+		return context.Background()
+	}
+
+	merged := ctxs[0]
+	for i := 1; i < len(ctxs); i++ {
+		merged = s.mergeTwoContexts(merged, ctxs[i])
+	}
+	return merged
+}
+
+// mergeTwoContexts 合并两个上下文
+func (s *Scheduler) mergeTwoContexts(ctx1, ctx2 context.Context) context.Context {
+	merged := context.Background()
+
+	// 从ctx1复制所有值
+	if ctx1 != nil {
+		if user := ctx1.Value("user"); user != nil {
+			merged = context.WithValue(merged, "user", user)
+		}
+		// 可以添加其他需要合并的上下文键值
+	}
+
+	// 从ctx2复制所有值（会覆盖ctx1中的相同键）
+	if ctx2 != nil {
+		if user := ctx2.Value("user"); user != nil {
+			merged = context.WithValue(merged, "user", user)
+		}
+		// 可以添加其他需要合并的上下文键值
+	}
+
+	return merged
 }

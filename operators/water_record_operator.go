@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/zhanghuachuan/water-reminder/framework"
+	"github.com/zhanghuachuan/water-reminder/types"
 	"github.com/zhanghuachuan/water-reminder/utils"
 )
 
@@ -33,36 +34,40 @@ type WaterRecordResponse struct {
 	DrinkType string    `json:"drinkType"`
 }
 
-func (o *WaterRecordOperator) Execute(ctx context.Context, w http.ResponseWriter, r *http.Request) (context.Context, error) {
+func (o *WaterRecordOperator) Execute(ctx context.Context, r *http.Request) (context.Context, *framework.OperatorResult) {
 	// 获取当前用户
 	user, ok := ctx.Value("user").(*utils.User)
 	if !ok || user == nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return ctx, nil
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("Unauthorized", "Unauthorized", http.StatusUnauthorized),
+		}
 	}
 
 	switch r.Method {
 	case http.MethodPost:
-		return o.handleCreateRecord(ctx, w, r, user)
+		return o.handleCreateRecord(ctx, r, user)
 	case http.MethodGet:
-		return o.handleGetRecords(ctx, w, r, user)
+		return o.handleGetRecords(ctx, r, user)
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return ctx, nil
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("Method not allowed", "MethodNotAllowed", http.StatusMethodNotAllowed),
+		}
 	}
 }
 
-func (o *WaterRecordOperator) handleCreateRecord(ctx context.Context, w http.ResponseWriter, r *http.Request, user *utils.User) (context.Context, error) {
+func (o *WaterRecordOperator) handleCreateRecord(ctx context.Context, r *http.Request, user *utils.User) (context.Context, *framework.OperatorResult) {
 	var req WaterRecordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return ctx, err
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("Invalid request body", "BadRequest", http.StatusBadRequest),
+		}
 	}
 
 	// 验证输入
 	if req.Amount <= 0 {
-		http.Error(w, "Amount must be positive", http.StatusBadRequest)
-		return ctx, nil
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("Amount must be positive", "BadRequest", http.StatusBadRequest),
+		}
 	}
 
 	// 保存记录到数据库（这里简化为模拟）
@@ -73,15 +78,12 @@ func (o *WaterRecordOperator) handleCreateRecord(ctx context.Context, w http.Res
 		DrinkType: req.DrinkType,
 	}
 
-	// 返回响应
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(record)
-
-	return ctx, nil
+	return ctx, &framework.OperatorResult{
+		Data: record,
+	}
 }
 
-func (o *WaterRecordOperator) handleGetRecords(ctx context.Context, w http.ResponseWriter, r *http.Request, user *utils.User) (context.Context, error) {
+func (o *WaterRecordOperator) handleGetRecords(ctx context.Context, r *http.Request, user *utils.User) (context.Context, *framework.OperatorResult) {
 	// 解析查询参数
 	date := r.URL.Query().Get("date")
 	if date == "" {
@@ -104,9 +106,7 @@ func (o *WaterRecordOperator) handleGetRecords(ctx context.Context, w http.Respo
 		},
 	}
 
-	// 返回响应
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(records)
-
-	return ctx, nil
+	return ctx, &framework.OperatorResult{
+		Data: records,
+	}
 }

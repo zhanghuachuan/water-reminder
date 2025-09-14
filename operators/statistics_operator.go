@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/zhanghuachuan/water-reminder/database"
+	"github.com/zhanghuachuan/water-reminder/framework"
+	"github.com/zhanghuachuan/water-reminder/types"
 	"github.com/zhanghuachuan/water-reminder/utils"
 )
 
@@ -44,18 +46,20 @@ type WaterRecordInfo struct {
 	DrinkType string    `json:"drinkType"`
 }
 
-func (o *StatisticsOperator) Execute(ctx context.Context, w http.ResponseWriter, r *http.Request) (context.Context, error) {
+func (o *StatisticsOperator) Execute(ctx context.Context, r *http.Request) (context.Context, *framework.OperatorResult) {
 	// 获取当前用户
 	user, ok := ctx.Value("user").(*utils.User)
 	if !ok || user == nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return ctx, nil
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("Unauthorized", "Unauthorized", http.StatusUnauthorized),
+		}
 	}
 
 	var req StatisticsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return ctx, err
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("Invalid request body", "BadRequest", http.StatusBadRequest),
+		}
 	}
 
 	// 验证请求参数
@@ -63,39 +67,44 @@ func (o *StatisticsOperator) Execute(ctx context.Context, w http.ResponseWriter,
 		req.Period = "day"
 	}
 	if !utils.Contains([]string{"day", "week", "month", "custom"}, req.Period) {
-		http.Error(w, "Invalid period. Allowed values: day, week, month, custom", http.StatusBadRequest)
-		return ctx, nil
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("Invalid period. Allowed values: day, week, month, custom", "BadRequest", http.StatusBadRequest),
+		}
 	}
 
 	if req.Date == "" {
 		req.Date = time.Now().Format("2006-01-02")
 	}
 	if _, err := time.Parse("2006-01-02", req.Date); err != nil {
-		http.Error(w, "Invalid date format. Use YYYY-MM-DD", http.StatusBadRequest)
-		return ctx, nil
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("Invalid date format. Use YYYY-MM-DD", "BadRequest", http.StatusBadRequest),
+		}
 	}
 
 	if req.Period == "custom" {
 		if req.Start == "" || req.End == "" {
-			http.Error(w, "Start and end dates are required for custom period", http.StatusBadRequest)
-			return ctx, nil
+			return ctx, &framework.OperatorResult{
+				Error: types.NewApiError("Start and end dates are required for custom period", "BadRequest", http.StatusBadRequest),
+			}
 		}
 		if _, err := time.Parse("2006-01-02", req.Start); err != nil {
-			http.Error(w, "Invalid start date format. Use YYYY-MM-DD", http.StatusBadRequest)
-			return ctx, nil
+			return ctx, &framework.OperatorResult{
+				Error: types.NewApiError("Invalid start date format. Use YYYY-MM-DD", "BadRequest", http.StatusBadRequest),
+			}
 		}
 		if _, err := time.Parse("2006-01-02", req.End); err != nil {
-			http.Error(w, "Invalid end date format. Use YYYY-MM-DD", http.StatusBadRequest)
-			return ctx, nil
+			return ctx, &framework.OperatorResult{
+				Error: types.NewApiError("Invalid end date format. Use YYYY-MM-DD", "BadRequest", http.StatusBadRequest),
+			}
 		}
 	}
 
 	// 处理统计数据
 	response := o.generateStatistics(req, user)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-	return ctx, nil
+	return ctx, &framework.OperatorResult{
+		Data: response,
+	}
 }
 
 func (o *StatisticsOperator) generateStatistics(req StatisticsRequest, user *utils.User) StatisticsResponse {

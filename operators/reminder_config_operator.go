@@ -22,38 +22,41 @@ func init() {
 	framework.RegisterOperator("reminder-config", &ReminderConfigOperator{})
 }
 
-func (o *ReminderConfigOperator) Execute(ctx context.Context, w http.ResponseWriter, r *http.Request) (context.Context, error) {
+func (o *ReminderConfigOperator) Execute(ctx context.Context, r *http.Request) (context.Context, *framework.OperatorResult) {
 	user := ctx.Value("user").(*types.User)
 
 	switch r.Method {
 	case http.MethodGet:
-		return o.handleGetConfig(ctx, w, r, user)
+		return o.handleGetConfig(ctx, r, user)
 	case http.MethodPost, http.MethodPut:
-		return o.handleUpdateConfig(ctx, w, r, user)
+		return o.handleUpdateConfig(ctx, r, user)
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return ctx, nil
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("Method not allowed", "MethodNotAllowed", http.StatusMethodNotAllowed),
+		}
 	}
 }
 
-func (o *ReminderConfigOperator) handleGetConfig(ctx context.Context, w http.ResponseWriter, r *http.Request, user *types.User) (context.Context, error) {
+func (o *ReminderConfigOperator) handleGetConfig(ctx context.Context, r *http.Request, user *types.User) (context.Context, *framework.OperatorResult) {
 	// 从数据库获取用户配置
 	var config types.ReminderConfig
 	if err := database.GetDB().Where("user_id = ?", user.ID).First(&config).Error; err != nil {
-		http.Error(w, "Config not found", http.StatusNotFound)
-		return ctx, err
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("Config not found", "NotFound", http.StatusNotFound),
+		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(config)
-	return ctx, nil
+	return ctx, &framework.OperatorResult{
+		Data: config,
+	}
 }
 
-func (o *ReminderConfigOperator) handleUpdateConfig(ctx context.Context, w http.ResponseWriter, r *http.Request, user *types.User) (context.Context, error) {
+func (o *ReminderConfigOperator) handleUpdateConfig(ctx context.Context, r *http.Request, user *types.User) (context.Context, *framework.OperatorResult) {
 	var config types.ReminderConfig
 	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
-		return ctx, err
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("Invalid request", "BadRequest", http.StatusBadRequest),
+		}
 	}
 
 	// 设置用户ID
@@ -61,21 +64,24 @@ func (o *ReminderConfigOperator) handleUpdateConfig(ctx context.Context, w http.
 
 	// 验证配置
 	if config.Interval < 15 {
-		http.Error(w, "Interval must be at least 15 minutes", http.StatusBadRequest)
-		return ctx, nil
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("Interval must be at least 15 minutes", "BadRequest", http.StatusBadRequest),
+		}
 	}
 	if config.DailyTarget <= 0 {
-		http.Error(w, "Daily target must be positive", http.StatusBadRequest)
-		return ctx, nil
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("Daily target must be positive", "BadRequest", http.StatusBadRequest),
+		}
 	}
 
 	// 保存配置到数据库
 	if err := database.GetDB().Where("user_id = ?", user.ID).Save(&config).Error; err != nil {
-		http.Error(w, "Failed to save config", http.StatusInternalServerError)
-		return ctx, err
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("Failed to save config", "InternalServerError", http.StatusInternalServerError),
+		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(config)
-	return ctx, nil
+	return ctx, &framework.OperatorResult{
+		Data: config,
+	}
 }

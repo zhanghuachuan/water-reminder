@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/zhanghuachuan/water-reminder/framework"
+	"github.com/zhanghuachuan/water-reminder/types"
 	"github.com/zhanghuachuan/water-reminder/utils"
 )
 
@@ -25,39 +26,44 @@ type RegisterRequest struct {
 	Password string `json:"password"`
 }
 
-func (o *RegisterOperator) Execute(ctx context.Context, w http.ResponseWriter, r *http.Request) (context.Context, error) {
+func (o *RegisterOperator) Execute(ctx context.Context, r *http.Request) (context.Context, *framework.OperatorResult) {
 	var req RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return ctx, err
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("请求参数错误", "Invalid request body", http.StatusBadRequest),
+		}
 	}
 
 	// 验证输入
 	if req.Username == "" || req.Email == "" || req.Password == "" {
-		http.Error(w, "All fields are required", http.StatusBadRequest)
-		return ctx, nil
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("参数验证失败", "All fields are required", http.StatusBadRequest),
+		}
 	}
 
 	// 创建用户
 	user, err := utils.CreateUser(req.Username, req.Email, req.Password)
 	if err != nil {
-		http.Error(w, "Failed to create user: "+err.Error(), http.StatusInternalServerError)
-		return ctx, err
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("用户创建失败", "Failed to create user: "+err.Error(), http.StatusInternalServerError),
+		}
 	}
 
 	// 生成JWT令牌
 	token, err := utils.GenerateJWT(user.ID)
 	if err != nil {
-		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
-		return ctx, err
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("令牌生成失败", "Failed to generate token", http.StatusInternalServerError),
+		}
 	}
 
-	// 返回响应
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"token": token,
-		"user":  user,
-	})
+	// 返回注册成功数据
+	registerData := &types.LoginResponseData{
+		Token: token,
+		User:  user,
+	}
 
-	return context.WithValue(ctx, "user", user), nil
+	return context.WithValue(ctx, "user", user), &framework.OperatorResult{
+		Data: registerData,
+	}
 }

@@ -1,20 +1,20 @@
 [
   {
-    "server_name": "login",
+    "server_name": "/login",
     "dependencies": {
       "validate": "login",
       "login": ""
     }
   },
   {
-    "server_name": "register",
+    "server_name": "/register",
     "dependencies": {
       "validate": "register",
       "register": ""
     }
   },
   {
-    "server_name": "create_drinking_record",
+    "server_name": "/create_drinking_record",
     "dependencies": {
       "validate": "auth",
       "auth": "drinking-record",
@@ -22,7 +22,7 @@
     }
   },
   {
-    "server_name": "get_water_records",
+    "server_name": "/get_water_records",
     "dependencies": {
       "validate": "auth",
       "auth": "water_record",
@@ -30,7 +30,7 @@
     }
   },
   {
-    "server_name": "get_reminder_config",
+    "server_name": "/get_reminder_config",
     "dependencies": {
       "validate": "auth",
       "auth": "reminder-config",
@@ -38,7 +38,7 @@
     }
   },
   {
-    "server_name": "update_reminder_config",
+    "server_name": "/update_reminder_config",
     "dependencies": {
       "validate": "auth",
       "auth": "reminder-config",
@@ -46,7 +46,7 @@
     }
   },
   {
-    "server_name": "get_statistics",
+    "server_name": "/get_statistics",
     "dependencies": {
       "validate": "auth",
       "auth": "statistics",

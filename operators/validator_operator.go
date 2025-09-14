@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/zhanghuachuan/water-reminder/framework"
+	"github.com/zhanghuachuan/water-reminder/types"
 	"github.com/zhanghuachuan/water-reminder/utils"
 )
 
@@ -13,17 +15,19 @@ func (o *ValidatorOperator) Name() string {
 	return "validate"
 }
 
-func (o *ValidatorOperator) Execute(ctx context.Context, w http.ResponseWriter, r *http.Request) (context.Context, error) {
+func (o *ValidatorOperator) Execute(ctx context.Context, r *http.Request) (context.Context, *framework.OperatorResult) {
 	// 验证请求方法
 	if r.Method != http.MethodPost && r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return ctx, nil
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("方法不允许", "Method not allowed", http.StatusMethodNotAllowed),
+		}
 	}
 
 	// 验证内容类型
 	if r.Header.Get("Content-Type") != "application/json" {
-		http.Error(w, "Unsupported media type", http.StatusUnsupportedMediaType)
-		return ctx, nil
+		return ctx, &framework.OperatorResult{
+			Error: types.NewApiError("不支持的媒体类型", "Unsupported media type", http.StatusUnsupportedMediaType),
+		}
 	}
 
 	// 验证JWT令牌（如果存在）
@@ -31,10 +35,11 @@ func (o *ValidatorOperator) Execute(ctx context.Context, w http.ResponseWriter, 
 		tokenString := authHeader[len("Bearer "):]
 		_, err := utils.ValidateJWT(tokenString)
 		if err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return ctx, err
+			return ctx, &framework.OperatorResult{
+				Error: types.NewApiError("未授权", "Unauthorized", http.StatusUnauthorized),
+			}
 		}
 	}
 
-	return ctx, nil
+	return ctx, &framework.OperatorResult{}
 }
