@@ -5,314 +5,261 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
-	"reflect"
-	"time"
 )
-
-// 确保导入包被使用（消除编译器警告）
-var _ = json.Compact
-var _ = os.ReadFile
 
 type ExecutionResult struct {
 	OperatorName string
-	Status       ExecutionStatus
-	Err          error
+	Success      bool
+	Error        error
+	Duration     int64
 }
-
-type OperatorConfig struct {
-	Type   string
-	Config map[string]interface{}
-}
-
-type ExecutionStatus int
-
-const (
-	StatusSuccess ExecutionStatus = iota
-	StatusFailed
-)
 
 type ExecuteOptions struct {
 	Parallel bool
-	Timeout  time.Duration
 	Request  *http.Request
 	Response http.ResponseWriter
 }
 
-type OperatorFactory interface {
-	Create(config map[string]interface{}) (Operator, error)
-	Name() string
-}
-
-type ConfigValidator struct {
-	factories map[string]OperatorFactory
-}
-
 type Scheduler struct {
-	operators    map[string]Operator
-	dependencies map[string][]string
+	operators      map[string]Operator
+	dependencies   map[string]map[string][]string // server_name -> dependencies
+	executionOrder map[string][][]string          // server_name -> execution order (grouped by level)
 }
 
-func NewConfigValidator(factories map[string]OperatorFactory) *ConfigValidator {
-	return &ConfigValidator{
-		factories: factories,
+func NewScheduler() *Scheduler {
+	return &Scheduler{
+		dependencies:   make(map[string]map[string][]string),
+		executionOrder: make(map[string][][]string),
 	}
 }
 
-func (v *ConfigValidator) Validate(configPath string) (*Scheduler, error) {
+func (s *Scheduler) LoadConfig(configPath string) error {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	var config struct {
-		Operators map[string]struct {
-			Type   string                 `json:"type"`
-			Config map[string]interface{} `json:"config"`
-		} `json:"operators"`
+	var configs []struct {
+		ServerName   string            `json:"server_name"`
 		Dependencies map[string]string `json:"dependencies"`
 	}
 
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, err
+	if err := json.Unmarshal(data, &configs); err != nil {
+		return fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	// 验证算子工厂
-	for name, opConfig := range config.Operators {
-		if _, exists := v.factories[opConfig.Type]; !exists {
-			return nil, fmt.Errorf("operator factory not found for %s", name)
+	for _, config := range configs {
+		// 将字符串依赖关系转换为字符串数组
+		dependencies := make(map[string][]string)
+		for op, dep := range config.Dependencies {
+			dependencies[op] = []string{dep}
+		}
+
+		s.dependencies[config.ServerName] = dependencies
+		if err := s.precomputeExecutionOrder(config.ServerName); err != nil {
+			return fmt.Errorf("failed to precompute execution order for %s: %w", config.ServerName, err)
 		}
 	}
 
-	// 构建依赖图并检测环
-	deps := make(map[string][]string)
-	for from, to := range config.Dependencies {
-		if _, exists := config.Operators[from]; !exists {
-			return nil, fmt.Errorf("source operator %s not found", from)
-		}
-		if _, exists := config.Operators[to]; !exists {
-			return nil, fmt.Errorf("target operator %s not found", to)
-		}
-		deps[from] = append(deps[from], to)
-	}
-
-	if err := detectCycles(deps, config.Operators); err != nil {
-		return nil, err
-	}
-
-	return &Scheduler{
-		dependencies: deps,
-	}, nil
-}
-
-func detectCycles(deps map[string][]string, operators interface{}) error {
-	inDegree := make(map[string]int)
-	queue := make([]string, 0)
-
-	// 初始化所有算子的入度
-	// 通用类型处理
-	operatorsMap := reflect.ValueOf(operators)
-	if operatorsMap.Kind() != reflect.Map {
-		return errors.New("invalid operators type")
-	}
-
-	var opNames []string
-	for _, key := range operatorsMap.MapKeys() {
-		opNames = append(opNames, key.String())
-	}
-
-	for _, opName := range opNames {
-		inDegree[opName] = 0
-	}
-
-	// 计算初始入度
-	for _, toList := range deps {
-		for _, to := range toList {
-			inDegree[to]++
-		}
-	}
-
-	// 找出入度为0的算子
-	for opName, degree := range inDegree {
-		if degree == 0 {
-			queue = append(queue, opName)
-		}
-	}
-
-	processed := 0
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-		processed++
-
-		for _, neighbor := range deps[current] {
-			inDegree[neighbor]--
-			if inDegree[neighbor] == 0 {
-				queue = append(queue, neighbor)
-			}
-		}
-	}
-
-	if processed != len(opNames) {
-		return errors.New("cycle detected in operator dependencies")
-	}
 	return nil
 }
 
-func NewScheduler(dependencies map[string][]string) *Scheduler {
-	return &Scheduler{
-		dependencies: dependencies,
-	}
-}
-
-func (s *Scheduler) detectCycles(deps map[string][]string, operators map[string]struct{}) error {
-	inDegree := make(map[string]int)
-	queue := make([]string, 0)
-
-	// 初始化所有算子的入度
-	for opName := range operators {
-		inDegree[opName] = 0
+func (s *Scheduler) precomputeExecutionOrder(serverName string) error {
+	if s.operators == nil {
+		s.operators = make(map[string]Operator)
 	}
 
-	// 计算初始入度
-	for _, toList := range deps {
-		for _, to := range toList {
-			inDegree[to]++
+	dependencies := s.dependencies[serverName]
+	for opName := range dependencies {
+		// 使用全局算子注册表
+		if op, err := GetOperator(opName); err == nil {
+			s.operators[opName] = op
+		} else {
+			return fmt.Errorf("operator %s not found in registry", opName)
 		}
 	}
 
-	// 找出入度为0的算子
-	for opName, degree := range inDegree {
-		if degree == 0 {
-			queue = append(queue, opName)
-		}
-	}
-
-	processed := 0
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-		processed++
-
-		for _, neighbor := range deps[current] {
-			inDegree[neighbor]--
-			if inDegree[neighbor] == 0 {
-				queue = append(queue, neighbor)
-			}
-		}
-	}
-
-	if processed != len(operators) {
-		return errors.New("cycle detected in operator dependencies")
-	}
-	return nil
-}
-
-// AddDependency 已弃用，依赖关系应在验证阶段通过ConfigValidator设置
-func (s *Scheduler) AddDependency(from, to string) error {
-	return errors.New("dependencies should be set during config validation phase")
-}
-
-func (s *Scheduler) Execute(ctx context.Context, factories map[string]OperatorFactory, opts ...ExecuteOptions) (map[string]ExecutionResult, error) {
-	// 创建算子实例
-	s.operators = make(map[string]Operator)
-	for name := range s.dependencies {
-		factory, exists := factories[name]
-		if !exists {
-			return nil, fmt.Errorf("operator factory not found for %s", name)
-		}
-		op, err := factory.Create(nil)
-		if err != nil {
-			return nil, err
-		}
-		s.operators[name] = op
-	}
-
-	// 2. 获取已排序的算子列表 (依赖关系已在LoadConfig验证)
-	sortedOps, err := s.topologicalSort()
+	executionOrder, err := s.topologicalSort(dependencies)
 	if err != nil {
-		return nil, fmt.Errorf("unexpected error in execution: %w", err)
+		return err
 	}
 
-	options := ExecuteOptions{}
-	if len(opts) > 0 {
-		options = opts[0]
+	s.executionOrder[serverName] = executionOrder
+	return nil
+}
+
+func (s *Scheduler) topologicalSort(dependencies map[string][]string) ([][]string, error) {
+	inDegree := make(map[string]int)
+	for op := range dependencies {
+		inDegree[op] = 0
 	}
 
-	if options.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, options.Timeout)
-		defer cancel()
-	}
-
-	results := make(map[string]ExecutionResult)
-	currentCtx := ctx
-
-	for _, opName := range sortedOps {
-		op := s.operators[opName]
-		_, err := op.Execute(currentCtx, options.Response, options.Request)
-
-		result := ExecutionResult{
-			OperatorName: opName,
-			Status:       StatusSuccess,
-			Err:          err,
+	for _, deps := range dependencies {
+		for _, dep := range deps {
+			if dep != "" { // 忽略空字符串依赖
+				inDegree[dep]++
+			}
 		}
-		if err != nil {
-			result.Status = StatusFailed
-		}
-		results[opName] = result
+	}
 
-		if err != nil {
-			break
+	queue := []string{}
+	for op, degree := range inDegree {
+		if degree == 0 {
+			queue = append(queue, op)
+		}
+	}
+
+	result := [][]string{}
+	for len(queue) > 0 {
+		// 当前层级的所有算子可以并行执行
+		currentLevel := make([]string, len(queue))
+		copy(currentLevel, queue)
+		result = append(result, currentLevel)
+
+		nextQueue := []string{}
+		for _, current := range queue {
+			for _, dep := range dependencies[current] {
+				if dep != "" { // 忽略空字符串依赖
+					inDegree[dep]--
+					if inDegree[dep] == 0 {
+						nextQueue = append(nextQueue, dep)
+					}
+				}
+			}
+		}
+		queue = nextQueue
+	}
+
+	// 计算实际处理的算子数量（排除空依赖）
+	processedCount := 0
+	for _, level := range result {
+		processedCount += len(level)
+	}
+
+	if len(result) == 0 || processedCount != len(dependencies) {
+		return nil, errors.New("cycle detected in dependencies")
+	}
+
+	return result, nil
+}
+
+func (s *Scheduler) Execute(ctx context.Context, serverName string, opts ExecuteOptions) ([]ExecutionResult, error) {
+	executionOrder, exists := s.executionOrder[serverName]
+	if !exists {
+		return nil, fmt.Errorf("execution order not found for server: %s", serverName)
+	}
+
+	if opts.Parallel {
+		return s.executeSmartParallel(ctx, executionOrder, opts)
+	}
+	return s.executeSequential(ctx, executionOrder, opts)
+}
+
+func (s *Scheduler) executeSequential(ctx context.Context, executionOrder [][]string, opts ExecuteOptions) ([]ExecutionResult, error) {
+	results := []ExecutionResult{}
+	for _, level := range executionOrder {
+		for _, opName := range level {
+			op, exists := s.operators[opName]
+			if !exists {
+				results = append(results, ExecutionResult{
+					OperatorName: opName,
+					Success:      false,
+					Error:        fmt.Errorf("operator not found"),
+				})
+				continue
+			}
+
+			newCtx, err := op.Execute(ctx, opts.Response, opts.Request)
+			results = append(results, ExecutionResult{
+				OperatorName: opName,
+				Success:      err == nil,
+				Error:        err,
+			})
+
+			if err != nil {
+				log.Printf("Operator %s failed: %v", opName, err)
+				return results, fmt.Errorf("operator %s failed: %w", opName, err)
+			}
+			ctx = newCtx
 		}
 	}
 
 	return results, nil
 }
 
-func (s *Scheduler) topologicalSort() ([]string, error) {
-	inDegree := make(map[string]int)
-	queue := make([]string, 0)
-	result := make([]string, 0)
+func (s *Scheduler) executeSmartParallel(ctx context.Context, executionOrder [][]string, opts ExecuteOptions) ([]ExecutionResult, error) {
+	results := []ExecutionResult{}
 
-	for opName := range s.operators {
-		inDegree[opName] = 0
-	}
+	for _, level := range executionOrder {
+		levelResults := make([]ExecutionResult, len(level))
+		levelCtx := ctx // 每个层级共享同一个上下文
 
-	for _, toList := range s.dependencies {
-		for _, to := range toList {
-			inDegree[to]++
+		// 并行执行当前层级的所有算子
+		errCh := make(chan error, len(level))
+		done := make(chan bool, len(level))
+		ctxCh := make(chan context.Context, len(level))
+
+		for i, opName := range level {
+			go func(idx int, name string) {
+				op, exists := s.operators[name]
+				if !exists {
+					levelResults[idx] = ExecutionResult{
+						OperatorName: name,
+						Success:      false,
+						Error:        fmt.Errorf("operator not found"),
+					}
+					errCh <- fmt.Errorf("operator %s not found", name)
+					done <- true
+					return
+				}
+
+				newCtx, err := op.Execute(levelCtx, opts.Response, opts.Request)
+				levelResults[idx] = ExecutionResult{
+					OperatorName: name,
+					Success:      err == nil,
+					Error:        err,
+				}
+
+				if err != nil {
+					log.Printf("Operator %s failed: %v", name, err)
+					errCh <- fmt.Errorf("operator %s failed: %w", name, err)
+				} else {
+					ctxCh <- newCtx // 传递更新后的上下文
+				}
+				done <- true
+			}(i, opName)
+		}
+
+		// 等待当前层级所有算子完成
+		for i := 0; i < len(level); i++ {
+			<-done
+		}
+
+		close(errCh)
+		close(done)
+		close(ctxCh)
+
+		// 检查当前层级是否有错误
+		var levelErrors []error
+		for err := range errCh {
+			levelErrors = append(levelErrors, err)
+		}
+
+		if len(levelErrors) > 0 {
+			return append(results, levelResults...), fmt.Errorf("parallel execution failed at level: %v", levelErrors)
+		}
+
+		// 收集当前层级的结果
+		results = append(results, levelResults...)
+
+		// 更新上下文：使用最后一个成功的算子的上下文
+		for newCtx := range ctxCh {
+			ctx = newCtx
 		}
 	}
 
-	for opName, degree := range inDegree {
-		if degree == 0 {
-			queue = append(queue, opName)
-		}
-	}
-
-	processed := 0
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-		result = append(result, current)
-		processed++
-
-		for _, neighbor := range s.dependencies[current] {
-			inDegree[neighbor]--
-			if inDegree[neighbor] < 0 {
-				return nil, errors.New("cycle detected in operator dependencies")
-			}
-			if inDegree[neighbor] == 0 {
-				queue = append(queue, neighbor)
-			}
-		}
-	}
-
-	if processed != len(s.operators) {
-		return nil, errors.New("cycle detected in operator dependencies")
-	}
-
-	return result, nil
+	return results, nil
 }

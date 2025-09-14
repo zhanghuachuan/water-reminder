@@ -5,22 +5,15 @@ import (
 	"gorm.io/gorm"
 )
 
-var DB *gorm.DB
-
-func InitMySQL(dsn string) error {
-	var err error
-	DB, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
+func InitMySQL(dsn string) (*gorm.DB, error) {
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	sqlDB, _ := DB.DB()
+	sqlDB, _ := db.DB()
 	sqlDB.SetMaxIdleConns(10)
 	sqlDB.SetMaxOpenConns(100)
 
-	return nil
-}
-
-func GetDB() *gorm.DB {
-	return DB
+	return db, nil
 }

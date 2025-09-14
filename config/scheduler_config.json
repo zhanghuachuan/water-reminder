@@ -1,4 +1,17 @@
-{
-  "auth": "validate",
-  "validate": "log"
-}
+[
+  {
+    "server_name": "login",
+    "dependencies": {
+      "validate": "login",
+      "login": ""
+    }
+  },
+  {
+    "server_name": "register",
+    "dependencies": {
+      "validate": "register",
+      "register": ""
+    }
+  }
+ 
+]
