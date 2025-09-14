@@ -29,6 +29,13 @@
       "water_record": ""
     }
   },
+   {
+    "server_name": "/auth",
+    "dependencies": {
+      "validate": "auth",
+      "auth":  ""
+    }
+  },
   {
     "server_name": "/get_reminder_config",
     "dependencies": {

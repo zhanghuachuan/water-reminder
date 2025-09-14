@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zhanghuachuan/water-reminder/database"
 	"github.com/zhanghuachuan/water-reminder/framework"
 	"github.com/zhanghuachuan/water-reminder/types"
 	"github.com/zhanghuachuan/water-reminder/utils"
@@ -46,7 +47,7 @@ func (o *AuthOperator) Execute(ctx context.Context, r *http.Request) (context.Co
 	}
 
 	// 验证Redis中的token
-	valid, err := utils.IsTokenValid(userID, tokenString)
+	valid, err := database.IsTokenValid(userID, tokenString)
 	if err != nil || !valid {
 		return ctx, &framework.OperatorResult{
 			Error: types.NewApiError("Invalid token", "Unauthorized", http.StatusUnauthorized),
@@ -54,7 +55,7 @@ func (o *AuthOperator) Execute(ctx context.Context, r *http.Request) (context.Co
 	}
 
 	// 续期token（如果当天已经验证过，延长至一天）
-	err = utils.RefreshTokenInRedis(userID, 24*time.Hour)
+	err = database.RefreshTokenInRedis(userID, 24*time.Hour)
 	if err != nil {
 		return ctx, &framework.OperatorResult{
 			Error: types.NewApiError("Failed to refresh token", "InternalServerError", http.StatusInternalServerError),
