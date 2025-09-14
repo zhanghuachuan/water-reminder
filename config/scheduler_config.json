@@ -12,6 +12,45 @@
       "validate": "register",
       "register": ""
     }
+  },
+  {
+    "server_name": "create_drinking_record",
+    "dependencies": {
+      "validate": "auth",
+      "auth": "drinking-record",
+      "drinking-record": ""
+    }
+  },
+  {
+    "server_name": "get_water_records",
+    "dependencies": {
+      "validate": "auth",
+      "auth": "water_record",
+      "water_record": ""
+    }
+  },
+  {
+    "server_name": "get_reminder_config",
+    "dependencies": {
+      "validate": "auth",
+      "auth": "reminder-config",
+      "reminder-config": ""
+    }
+  },
+  {
+    "server_name": "update_reminder_config",
+    "dependencies": {
+      "validate": "auth",
+      "auth": "reminder-config",
+      "reminder-config": ""
+    }
+  },
+  {
+    "server_name": "get_statistics",
+    "dependencies": {
+      "validate": "auth",
+      "auth": "statistics",
+      "statistics": ""
+    }
   }
- 
 ]
